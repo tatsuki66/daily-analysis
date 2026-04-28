@@ -538,20 +538,41 @@ table.raw tbody tr:hover td { background: rgba(47,84,150,0.04); }
       <div class="feature-icon">💹</div>
       <div>
         <div class="feature-label">② 顧客別 粗利推移</div>
-        <div class="feature-desc">同上の粗利金額バージョン</div>
+        <div class="feature-desc">粗利金額の日付×顧客マトリクス</div>
+      </div>
+    </div>
+    <div class="feature-item">
+      <div class="feature-icon">📈</div>
+      <div>
+        <div class="feature-label">③ 顧客別 粗利率推移</div>
+        <div class="feature-desc">粗利率(%)の日付×顧客マトリクス</div>
       </div>
     </div>
     <div class="feature-item">
       <div class="feature-icon">📦</div>
       <div>
-        <div class="feature-label">③ 商品別 売上推移</div>
+        <div class="feature-label">④ 商品別 売上推移</div>
         <div class="feature-desc">日付×商品名マトリクス</div>
+      </div>
+    </div>
+    <div class="feature-item">
+      <div class="feature-icon">💰</div>
+      <div>
+        <div class="feature-label">⑤ 商品別 粗利推移</div>
+        <div class="feature-desc">粗利金額の日付×商品名マトリクス</div>
+      </div>
+    </div>
+    <div class="feature-item">
+      <div class="feature-icon">📊</div>
+      <div>
+        <div class="feature-label">⑥ 商品別 粗利率推移</div>
+        <div class="feature-desc">粗利率(%)の日付×商品名マトリクス</div>
       </div>
     </div>
     <div class="feature-item">
       <div class="feature-icon">📋</div>
       <div>
-        <div class="feature-label">④ 生データ</div>
+        <div class="feature-label">⑦ 生データ</div>
         <div class="feature-desc">全件検索・Excel/CSV出力</div>
       </div>
     </div>
@@ -570,10 +591,13 @@ table.raw tbody tr:hover td { background: rgba(47,84,150,0.04); }
     <div class="header-logo">BILMATEL</div>
     <div class="header-file" id="header-file"></div>
     <nav class="tabs">
-      <button class="tab active" data-tab="customers" onclick="switchTab('customers')">① 顧客別売上</button>
-      <button class="tab"        data-tab="profit"    onclick="switchTab('profit')">② 顧客別粗利</button>
-      <button class="tab"        data-tab="products"  onclick="switchTab('products')">③ 商品別売上</button>
-      <button class="tab"        data-tab="raw"       onclick="switchTab('raw')">④ 生データ</button>
+      <button class="tab active" data-tab="customers"    onclick="switchTab('customers')">① 顧客別売上</button>
+      <button class="tab"        data-tab="cust-profit"  onclick="switchTab('cust-profit')">② 顧客別粗利</button>
+      <button class="tab"        data-tab="cust-rate"    onclick="switchTab('cust-rate')">③ 顧客別粗利率</button>
+      <button class="tab"        data-tab="products"     onclick="switchTab('products')">④ 商品別売上</button>
+      <button class="tab"        data-tab="prod-profit"  onclick="switchTab('prod-profit')">⑤ 商品別粗利</button>
+      <button class="tab"        data-tab="prod-rate"    onclick="switchTab('prod-rate')">⑥ 商品別粗利率</button>
+      <button class="tab"        data-tab="raw"          onclick="switchTab('raw')">⑦ 生データ</button>
     </nav>
     <button class="reload-btn" onclick="resetApp()">↑ 再読込</button>
   </header>
@@ -786,17 +810,19 @@ function switchTab(tab) {
 }
 
 // ─────────────────────────────────────────────
-// Matrix view (tabs ①②③)
+// Matrix view (tabs ①〜⑥)
 // ─────────────────────────────────────────────
 function renderMatrix() {
   const ym = document.getElementById('month-sel').value;
   const [y, mo] = ym.split('/');
   const ymPrev = `${+y - 1}/${mo}`;
 
-  let valueKey, entityKey;
-  if (currentTab === 'customers') { valueKey = 'amount';  entityKey = 'customer'; }
-  else if (currentTab === 'profit')    { valueKey = 'profit';  entityKey = 'customer'; }
-  else                                  { valueKey = 'amount';  entityKey = 'product'; }
+  // Determine mode: isRate = 粗利率(%) tab
+  const isRate = currentTab === 'cust-rate' || currentTab === 'prod-rate';
+  const entityKey = (currentTab === 'customers' || currentTab === 'cust-profit' || currentTab === 'cust-rate')
+    ? 'customer' : 'product';
+  const valueKey = (currentTab === 'customers' || currentTab === 'products')
+    ? 'amount' : 'profit';
 
   const thisData = allRows.filter(r => r.ym === ym && r[entityKey]);
   const prevData = allRows.filter(r => r.ym === ymPrev && r[entityKey]);
@@ -804,31 +830,70 @@ function renderMatrix() {
   // Get sorted days
   const days = [...new Set(thisData.map(r => r.date))].sort();
 
-  // Aggregate
+  // Aggregate — for rate tabs we need both amount and profit per entity/day
   const agg = {};
   thisData.forEach(r => {
     const k = r[entityKey];
-    if (!agg[k]) agg[k] = { total: 0, days: {} };
-    agg[k].total += r[valueKey];
-    agg[k].days[r.date] = (agg[k].days[r.date] || 0) + r[valueKey];
+    if (!agg[k]) agg[k] = { amount: 0, profit: 0, days: {} };
+    agg[k].amount += r.amount;
+    agg[k].profit += r.profit;
+    if (!agg[k].days[r.date]) agg[k].days[r.date] = { amount: 0, profit: 0 };
+    agg[k].days[r.date].amount += r.amount;
+    agg[k].days[r.date].profit += r.profit;
   });
 
+  // prevAgg for rate: need amount+profit
   const prevAgg = {};
   prevData.forEach(r => {
     const k = r[entityKey];
-    prevAgg[k] = (prevAgg[k] || 0) + r[valueKey];
+    if (!prevAgg[k]) prevAgg[k] = { amount: 0, profit: 0 };
+    prevAgg[k].amount += r.amount;
+    prevAgg[k].profit += r.profit;
   });
 
-  const sorted = Object.entries(agg).sort((a, b) => b[1].total - a[1].total);
+  // Helper: get display value for a given entity total
+  const getTotal = (ent) => isRate
+    ? (ent.amount > 0 ? ent.profit / ent.amount * 100 : 0)
+    : (valueKey === 'amount' ? ent.amount : ent.profit);
+
+  const getDayVal = (dayObj) => {
+    if (!dayObj) return 0;
+    return isRate
+      ? (dayObj.amount > 0 ? dayObj.profit / dayObj.amount * 100 : 0)
+      : (valueKey === 'amount' ? dayObj.amount : dayObj.profit);
+  };
+
+  const getPrevTotal = (prev) => isRate
+    ? (prev && prev.amount > 0 ? prev.profit / prev.amount * 100 : 0)
+    : (prev ? (valueKey === 'amount' ? prev.amount : prev.profit) : 0);
+
+  // Sort by monthly total desc
+  const sorted = Object.entries(agg).sort((a, b) => getTotal(b[1]) - getTotal(a[1]));
 
   // Stat bar
-  const grandTotal = sorted.reduce((s, [, e]) => s + e.total, 0);
-  const grandPrev  = Object.values(prevAgg).reduce((s, v) => s + v, 0);
+  const grandTotal = (() => {
+    if (isRate) {
+      const totAmt = Object.values(agg).reduce((s, e) => s + e.amount, 0);
+      const totPrf = Object.values(agg).reduce((s, e) => s + e.profit, 0);
+      return totAmt > 0 ? totPrf / totAmt * 100 : 0;
+    }
+    return sorted.reduce((s, [, e]) => s + (valueKey === 'amount' ? e.amount : e.profit), 0);
+  })();
+  const grandPrev = (() => {
+    if (isRate) {
+      const totAmt = Object.values(prevAgg).reduce((s, e) => s + e.amount, 0);
+      const totPrf = Object.values(prevAgg).reduce((s, e) => s + e.profit, 0);
+      return totAmt > 0 ? totPrf / totAmt * 100 : 0;
+    }
+    return Object.values(prevAgg).reduce((s, e) => s + (valueKey === 'amount' ? e.amount : e.profit), 0);
+  })();
+
   const ratio = grandPrev > 0 ? grandTotal / grandPrev * 100 : null;
   const ratioClass = ratio === null ? '' : ratio >= 100 ? 'up' : 'down';
+  const fmtStat = isRate ? v => v.toFixed(1) + '%' : v => n(v);
   document.getElementById('stat-bar').innerHTML = `
-    <div class="stat-chip">当月合計 <b>${n(grandTotal)}</b></div>
-    <div class="stat-chip">前年同月 <b>${n(grandPrev)}</b></div>
+    <div class="stat-chip">当月${isRate?'平均粗利率':'合計'} <b>${fmtStat(grandTotal)}</b></div>
+    <div class="stat-chip">前年同月 <b>${grandPrev ? fmtStat(grandPrev) : '—'}</b></div>
     <div class="stat-chip ${ratioClass}">前年比 <b>${ratio === null ? '—' : ratio.toFixed(1) + '%'}</b></div>
     <div class="stat-chip">件数 <b>${sorted.length}</b></div>
   `;
@@ -838,9 +903,14 @@ function renderMatrix() {
     return;
   }
 
+  const colLabel = entityKey === 'customer' ? '得意先名' : '商品名';
+  const fmtCell = isRate
+    ? v => v > 0 ? v.toFixed(1) + '%' : ''
+    : v => v ? Math.round(v).toLocaleString() : '';
+
   // Build HTML
   let h = '<div class="table-outer"><table class="matrix"><thead><tr>';
-  h += `<th class="name-col">${currentTab === 'products' ? '商品名' : '得意先名'}</th>`;
+  h += `<th class="name-col">${colLabel}</th>`;
   days.forEach(d => { h += `<th>${+d.slice(8)}日</th>`; });
   h += '<th class="total-col">合計</th>';
   h += '<th class="ly-col">前年同月</th>';
@@ -848,16 +918,18 @@ function renderMatrix() {
   h += '</tr></thead><tbody>';
 
   sorted.forEach(([name, ent]) => {
-    const ly = prevAgg[name] || 0;
-    const r  = ly > 0 ? ent.total / ly * 100 : null;
+    const myTotal = getTotal(ent);
+    const prev = prevAgg[name];
+    const ly = getPrevTotal(prev);
+    const r  = (ly > 0 && prev) ? myTotal / ly * 100 : null;
     const rc = r === null ? 'neu' : r >= 100 ? 'up' : 'down';
     h += `<tr><td class="name-col" title="${esc(name)}">${esc(name)}</td>`;
     days.forEach(d => {
-      const v = ent.days[d] || 0;
-      h += `<td class="${v ? 'has-val' : ''}">${v ? Math.round(v).toLocaleString() : ''}</td>`;
+      const v = getDayVal(ent.days[d]);
+      h += `<td class="${v ? 'has-val' : ''}">${fmtCell(v)}</td>`;
     });
-    h += `<td class="total-col">${n(ent.total)}</td>`;
-    h += `<td class="ly-col">${ly ? n(ly) : '—'}</td>`;
+    h += `<td class="total-col">${isRate ? myTotal.toFixed(1)+'%' : n(myTotal)}</td>`;
+    h += `<td class="ly-col">${(ly || prev) ? (isRate ? ly.toFixed(1)+'%' : n(ly)) : '—'}</td>`;
     h += `<td class="${rc}">${r === null ? '—' : r.toFixed(1) + '%'}</td>`;
     h += '</tr>';
   });
@@ -865,14 +937,22 @@ function renderMatrix() {
   // Footer totals
   h += '</tbody><tfoot><tr><td class="name-col">合計</td>';
   days.forEach(d => {
-    const tot = thisData.filter(r => r.date === d).reduce((s, r) => s + r[valueKey], 0);
-    h += `<td>${tot ? Math.round(tot).toLocaleString() : ''}</td>`;
+    const dayRows = thisData.filter(r => r.date === d);
+    let v;
+    if (isRate) {
+      const dAmt = dayRows.reduce((s,r)=>s+r.amount,0);
+      const dPrf = dayRows.reduce((s,r)=>s+r.profit,0);
+      v = dAmt > 0 ? dPrf / dAmt * 100 : 0;
+    } else {
+      v = dayRows.reduce((s,r)=>s+r[valueKey],0);
+    }
+    h += `<td>${fmtCell(v)}</td>`;
   });
-  const lyTot = Object.values(prevAgg).reduce((s, v) => s + v, 0);
+  const lyTot = grandPrev;
   const rTot  = lyTot > 0 ? grandTotal / lyTot * 100 : null;
   const rcTot = rTot === null ? 'neu' : rTot >= 100 ? 'up' : 'down';
-  h += `<td class="total-col">${n(grandTotal)}</td>`;
-  h += `<td class="ly-col">${lyTot ? n(lyTot) : '—'}</td>`;
+  h += `<td class="total-col">${isRate ? grandTotal.toFixed(1)+'%' : n(grandTotal)}</td>`;
+  h += `<td class="ly-col">${lyTot ? (isRate ? lyTot.toFixed(1)+'%' : n(lyTot)) : '—'}</td>`;
   h += `<td class="${rcTot}">${rTot === null ? '—' : rTot.toFixed(1) + '%'}</td>`;
   h += '</tr></tfoot></table></div>';
 
@@ -1009,7 +1089,8 @@ function exportMatrixExcel(ym) {
   const ymPrev = `${+y-1}/${mo}`;
 
   // Helper to build matrix sheet
-  function makeSheet(valueKey, entityKey) {
+  function makeSheet(mode, entityKey) {
+    // mode: 'amount' | 'profit' | 'rate'
     const thisData = allRows.filter(r => r.ym === ym && r[entityKey]);
     const prevData = allRows.filter(r => r.ym === ymPrev && r[entityKey]);
     const days = [...new Set(thisData.map(r => r.date))].sort();
@@ -1017,13 +1098,28 @@ function exportMatrixExcel(ym) {
     const agg = {}, prevAgg = {};
     thisData.forEach(r => {
       const k = r[entityKey];
-      if (!agg[k]) agg[k] = { total: 0, days: {} };
-      agg[k].total += r[valueKey];
-      agg[k].days[r.date] = (agg[k].days[r.date] || 0) + r[valueKey];
+      if (!agg[k]) agg[k] = { amount: 0, profit: 0, days: {} };
+      agg[k].amount += r.amount;
+      agg[k].profit += r.profit;
+      if (!agg[k].days[r.date]) agg[k].days[r.date] = { amount: 0, profit: 0 };
+      agg[k].days[r.date].amount += r.amount;
+      agg[k].days[r.date].profit += r.profit;
     });
-    prevData.forEach(r => { prevAgg[r[entityKey]] = (prevAgg[r[entityKey]] || 0) + r[valueKey]; });
+    prevData.forEach(r => {
+      const k = r[entityKey];
+      if (!prevAgg[k]) prevAgg[k] = { amount: 0, profit: 0 };
+      prevAgg[k].amount += r.amount;
+      prevAgg[k].profit += r.profit;
+    });
 
-    const sorted = Object.entries(agg).sort((a,b) => b[1].total - a[1].total);
+    const getVal = (obj) => {
+      if (!obj) return 0;
+      if (mode === 'amount') return obj.amount;
+      if (mode === 'profit') return obj.profit;
+      return obj.amount > 0 ? +(obj.profit / obj.amount * 100).toFixed(2) : 0;
+    };
+
+    const sorted = Object.entries(agg).sort((a, b) => getVal(b[1]) - getVal(a[1]));
 
     const header = [
       entityKey === 'customer' ? '得意先名' : '商品名',
@@ -1032,17 +1128,40 @@ function exportMatrixExcel(ym) {
     ];
 
     const rows = sorted.map(([name, ent]) => {
-      const ly = prevAgg[name] || 0;
-      const r = ly > 0 ? +(ent.total / ly * 100).toFixed(1) : '';
-      return [name, ...days.map(d => Math.round(ent.days[d] || 0) || ''), Math.round(ent.total), Math.round(ly) || '', r];
+      const myTot = getVal(ent);
+      const prev = prevAgg[name];
+      const lyTot = prev ? getVal(prev) : 0;
+      const r = lyTot > 0 ? +(myTot / lyTot * 100).toFixed(1) : '';
+      return [
+        name,
+        ...days.map(d => getVal(ent.days[d] || null) || ''),
+        mode === 'rate' ? myTot : Math.round(myTot),
+        lyTot ? (mode === 'rate' ? lyTot : Math.round(lyTot)) : '',
+        r
+      ];
     });
 
-    // Footer
-    const footDay = days.map(d => Math.round(thisData.filter(r=>r.date===d).reduce((s,r)=>s+r[valueKey],0)) || '');
-    const grandTotal = sorted.reduce((s,[,e])=>s+e.total,0);
-    const lyTot = Object.values(prevAgg).reduce((s,v)=>s+v,0);
-    const rTot = lyTot > 0 ? +(grandTotal/lyTot*100).toFixed(1) : '';
-    rows.push(['合計', ...footDay, Math.round(grandTotal), Math.round(lyTot)||'', rTot]);
+    // Footer row
+    const footDay = days.map(d => {
+      const dayRows = thisData.filter(r => r.date === d);
+      if (mode === 'rate') {
+        const dAmt = dayRows.reduce((s,r)=>s+r.amount,0);
+        const dPrf = dayRows.reduce((s,r)=>s+r.profit,0);
+        return dAmt > 0 ? +(dPrf/dAmt*100).toFixed(2) : '';
+      }
+      const v = dayRows.reduce((s,r)=>s+r[mode==='amount'?'amount':'profit'],0);
+      return Math.round(v) || '';
+    });
+    const allAmt = Object.values(agg).reduce((s,e)=>s+e.amount,0);
+    const allPrf = Object.values(agg).reduce((s,e)=>s+e.profit,0);
+    const grandTot = mode==='rate' ? (allAmt>0?+(allPrf/allAmt*100).toFixed(2):0)
+      : Math.round(mode==='amount'?allAmt:allPrf);
+    const prevAllAmt = Object.values(prevAgg).reduce((s,e)=>s+e.amount,0);
+    const prevAllPrf = Object.values(prevAgg).reduce((s,e)=>s+e.profit,0);
+    const lyGrand = mode==='rate' ? (prevAllAmt>0?+(prevAllPrf/prevAllAmt*100).toFixed(2):0)
+      : Math.round(mode==='amount'?prevAllAmt:prevAllPrf);
+    const rGrand = lyGrand > 0 ? +(grandTot/lyGrand*100).toFixed(1) : '';
+    rows.push(['合計', ...footDay, grandTot, lyGrand||'', rGrand]);
 
     const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
     ws['!cols'] = [{wch:35}, ...days.map(()=>({wch:8})), {wch:14},{wch:14},{wch:10}];
@@ -1051,14 +1170,17 @@ function exportMatrixExcel(ym) {
 
   XLSX.utils.book_append_sheet(wb, makeSheet('amount','customer'), '①顧客別売上');
   XLSX.utils.book_append_sheet(wb, makeSheet('profit','customer'), '②顧客別粗利');
-  XLSX.utils.book_append_sheet(wb, makeSheet('amount','product'),  '③商品別売上');
+  XLSX.utils.book_append_sheet(wb, makeSheet('rate',  'customer'), '③顧客別粗利率');
+  XLSX.utils.book_append_sheet(wb, makeSheet('amount','product'),  '④商品別売上');
+  XLSX.utils.book_append_sheet(wb, makeSheet('profit','product'),  '⑤商品別粗利');
+  XLSX.utils.book_append_sheet(wb, makeSheet('rate',  'product'),  '⑥商品別粗利率');
 
-  // Sheet ④: raw
+  // Sheet ⑦: raw
   const rawHeaders = RAW_COLS.map(c => c.label);
   const thisRaw = allRows.filter(r => r.ym === ym);
   const rawData = thisRaw.map(r => RAW_COLS.map(c => c.num ? +r[c.key]||0 : r[c.key]||''));
   const wsRaw = XLSX.utils.aoa_to_sheet([rawHeaders, ...rawData]);
-  XLSX.utils.book_append_sheet(wb, wsRaw, '④生データ');
+  XLSX.utils.book_append_sheet(wb, wsRaw, '⑦生データ');
 
   XLSX.writeFile(wb, `bilmatel_${ym.replace('/','')}月次レポート_${today()}.xlsx`);
 }
